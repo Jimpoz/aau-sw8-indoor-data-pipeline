@@ -2,20 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from .db import neo4j_driver
-from .pathfinding import PathfindingService
+from db import neo4j_driver
+from pathfinding import PathfindingService
 
 router = APIRouter(prefix="/api/pathfinding", tags=["pathfinding"])
 pathfinding_service = PathfindingService(neo4j_driver)
-
-
-@router.get("/names")
-def get_all_state_names() -> dict[str, list[str]]:
-    try:
-        names = pathfinding_service.list_all_names()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"names": names}
 
 
 @router.get("/rooms")
@@ -46,7 +37,7 @@ def get_fastest_path(
     }
 
 
-@router.get("/fastest/image")
+@router.get("/debug/image")
 def get_fastest_path_image(
     start: str = Query(..., min_length=1),
     end: str = Query("outside", min_length=1),
@@ -61,7 +52,7 @@ def get_fastest_path_image(
     return Response(content=svg, media_type="image/svg+xml")
 
 
-@router.get("/fastest/map")
+@router.get("/debug/map")
 def get_fastest_path_map(
     start: str = Query(..., min_length=1),
     end: str = Query("outside", min_length=1),

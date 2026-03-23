@@ -1,249 +1,189 @@
-# Indoor Data Pipeline
+# Middleware
 
-This part of project was implemented a data-pipeline based on the [paper](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10099457).
+This repository contains a FastAPI service that does two jobs:
 
-This backend part exposes pathfinding APIs over the topology graph stored in Neo4j.
-It supports:
+- it analyzes room photos with a YOLO model
+- it reads and updates building data in Neo4j for room lookup and pathfinding
 
-- listing available navigation names
-- fastest-path computation using Dijkstra
-- route visualization as SVG (sequence view + floor map view)
+If you want the short version: this is the backend layer that turns uploaded room images and Neo4j graph data into API responses a frontend can use.
 
-## Architecture
+## What it does
 
-Main files:
+### Room photo analysis
 
-- `main.py`: FastAPI app + startup/shutdown lifecycle
-- `routes_pathfinding.py`: API routes
-- `ROUTES_INPUTS.md`: route input reference (query params, validation, examples)
-- `db.py`: Neo4j driver init/close
-- `pathfinding/`: object-oriented pathfinding module
+The service accepts exactly four images of a room, taken from different directions.
 
-Object-oriented pathfinding module:
+It then:
 
-- `pathfinding/service.py`:
-  - `PathfindingService`: orchestration facade used by routes
-- `pathfinding/repository.py`:
-  - `PathfindingRepository`: Neo4j queries (states, graph edges, map geometry)
-- `pathfinding/pathfinder.py`:
-  - `DijkstraPathfinder`: shortest-path algorithm
-- `pathfinding/renderers.py`:
-  - `PathSvgRenderer`: step-by-step path image
-  - `PathMapSvgRenderer`: floor map + route line
-- `pathfinding/query_runner.py`:
-  - `Neo4jQueryRunner`: runs Cypher for Session/Driver
-- `pathfinding/models.py`:
-  - dataclasses (`FastestPathResult`, map geometry models)
+- decodes the uploaded files into images
+- runs object detection with YOLO
+- counts the detected objects across the four views
+- generates SVG summaries for each view
+- can write the detected room data back onto the matching room node in Neo4j
 
-## Function Inputs and Outputs
+This logic lives in `room_summary/`.
 
-### API route functions (`routes_pathfinding.py`)
+### Indoor pathfinding
 
-| Function | Inputs | Output | Errors |
-|---|---|---|---|
-| `get_all_state_names()` | none | `{"names": list[str]}` | `500` on backend/DB errors |
-| `get_room_names_by_floor(floor)` | `floor: int >= 1` (query param) | `{"floor": int, "names": list[str]}` | `500` on backend/DB errors |
-| `get_fastest_path(start, end="outside")` | `start: str`, `end: str` (query params) | `{"start": str, "end": str, "path": list[str], "cost": float}` | `404` when no/unknown path target, `500` otherwise |
-| `get_fastest_path_image(start, end="outside")` | `start: str`, `end: str` | `Response(image/svg+xml)` | `404` when no/unknown path target, `500` otherwise |
-| `get_fastest_path_map(start, end="outside")` | `start: str`, `end: str` | `Response(image/svg+xml)` | `404` when no/unknown path target, `500` otherwise |
+The service also exposes navigation endpoints backed by Neo4j.
 
-### Service layer (`pathfinding/service.py`)
+It can:
 
-| Function                                                   | Inputs                             | Output                                            |
-| ------------------------------------------------------------| ------------------------------------| ---------------------------------------------------|
-| `PathfindingService(conn)`                                 | `conn: neo4j Driver/Session`       | service instance                                  |
-| `list_all_names()`                                         | none                               | `list[str]`                                       |
-| `list_room_names_by_floor(floor)`                          | `floor: int`                       | `list[str]`                                       |
-| `find_fastest_path(start_name, end_name="outside")`        | `start_name: str`, `end_name: str` | `FastestPathResult(path: list[str], cost: float)` |
-| `build_fastest_path_svg(start_name, end_name, result)`     | `str, str, FastestPathResult`      | `str` (SVG markup)                                |
-| `build_fastest_path_map_svg(start_name, end_name, result)` | `str, str, FastestPathResult`      | `str` (SVG markup)                                |
+- list rooms on a given floor
+- find the fastest path between two rooms
+- return SVG debug output for a route
+- return a map-style SVG using room geometry stored in Neo4j
 
-### Data access layer (`pathfinding/repository.py`)
+This logic lives in `pathfinding/` and `routes_pathfinding.py`.
 
-| Function | Inputs | Output | Why |
-|---|---|---|---|
-| `list_state_names()` | none | `list[str]` | names shown to API clients |
-| `list_room_names_by_floor(floor)` | `floor: int` | `list[str]` | room listing by floor |
-| `build_state_graph()` | none | `StateGraph(adjacency, lookup)` | graph for Dijkstra routing |
-| `load_map_rects()` | none | `dict[int, list[SpaceRect]]` | floor/room rectangles for map rendering |
-| `load_state_positions()` | none | `dict[str, StatePosition]` | state coordinates to draw route line |
+## How the app behaves
 
-### Algorithm and rendering functions
+- On startup, it checks that Neo4j is reachable.
+- On shutdown, it closes the Neo4j driver cleanly.
+- Room-summary routes are mounted directly at the app root.
+- Pathfinding routes are mounted under `/api/pathfinding`.
 
-| File / Function | Inputs | Output |
-|---|---|---|
-| `pathfinding/pathfinder.py` -> `DijkstraPathfinder.find_fastest_path(graph, start_name, end_name)` | `StateGraph`, `str`, `str` | `FastestPathResult` |
-| `pathfinding/renderers.py` -> `PathSvgRenderer.render(start_name, end_name, result)` | `str`, `str`, `FastestPathResult` | `str` (SVG sequence image) |
-| `pathfinding/renderers.py` -> `PathMapSvgRenderer.render(start_name, end_name, result, rects_by_floor, state_positions)` | `str`, `str`, `FastestPathResult`, map geometry, state coords | `str` (SVG floor map image) |
+That means the API currently has a mixed route layout on purpose:
 
-### Startup/DB functions
+- `/health`
+- `/get-room-names`
+- `/room-summary`
+- `/room-summary/by-room`
+- `/room-objects-detection`
+- `/api/pathfinding/...`
 
-| File / Function | Inputs | Output |
-|---|---|---|
-| `db.py` -> `initialize_neo4j_schema()` | none | `None` (connectivity check with retry) |
-| `db.py` -> `close_neo4j()` | none | `None` |
-| `main.py` -> `lifespan(app)` | `FastAPI app` | async context manager for startup/shutdown |
-| `main.py` -> `health()` | none | `{"status": "ok"}` |
+## Endpoints
 
-## Data Model (Neo4j)
-
-The backend reads these labels/relations generated by topology export:
-
-- Node labels:
-  - `GeneralSpace`: room/hallway/elevator/escalator geometry + metadata
-  - `State`: navigation node used for pathfinding
-  - `Transition`: door transition node
-  - `TransitionSpace`: outside space
-  - `CellSpaceBoundary`: door boundary node
-  - `CellSpaceBoundaryGeometry`: boundary geometry (`LINESTRING`)
-  - `Floor`: floor index
-- Relationships:
-  - `PATH`: weighted state-to-state edges (`cost`)
-  - `DUALITY`: semantic pair mapping (`State` <-> `GeneralSpace`/`TransitionSpace`)
-  - `CONNECTS`: state-transition links
-  - `PARTIALBOUNDEDBY`: spaces to door boundaries
-  - `HAS_GEOMETRY`: boundary to geometry
-  - `HAS_FLOOR`: floor assignment
-
-### Visual: Neo4j model overview
-
-![Neo4j Model Overview](./docs/images/neo4j_model_overview.jpg)
-
-## API Endpoints
-
-Base URL: `http://localhost:6969`
-
-For a route-input-only reference, see: [`ROUTES_INPUTS.md`](./ROUTES_INPUTS.md)
-
-### 1) Health
+### Health
 
 - `GET /health`
-- Response:
+  Returns `{"status": "ok"}` if the service is up.
 
-```json
-{ "status": "ok" }
-```
+### Room summary endpoints
 
-### 2) List all state names
+- `GET /get-room-names`
+  Returns room names from Neo4j that can be used when storing room detections.
 
-- `GET /api/pathfinding/names`
-- Response:
+- `POST /room-summary`
+  Accepts four uploaded images and returns object counts and per-view SVG summaries.
 
-```json
-{
-  "names": ["outside", "state_hallway_1_f1", "state_room_3_f2"]
-}
-```
+- `POST /room-summary/by-room`
+  Same as `/room-summary`, but also includes the room name supplied in the form data.
 
-### 3) List room names by floor
+- `POST /room-objects-detection`
+  Accepts a room name plus four images, runs detection, and stores the result on the matched room node in Neo4j.
 
-- `GET /api/pathfinding/rooms?floor=2`
-- Response:
+All room-summary POST endpoints accept an optional `model_name` query parameter. That value selects a model profile from `modelConfig.cfg`.
 
-```json
-{
-  "floor": 2,
-  "names": ["hallway_1_f2", "room_2_f2", "room_3_f2"]
-}
-```
+### Pathfinding endpoints
 
-### 4) Fastest path (JSON)
+- `GET /api/pathfinding/rooms?floor=1`
+  Returns room names for one floor.
 
-- `GET /api/pathfinding/fastest?start=transition_space_outside&end=room_3_f3`
-- Response:
+- `GET /api/pathfinding/fastest-path?start=A&end=outside`
+  Returns the fastest route between two points in the graph.
 
-```json
-{
-  "start": "transition_space_outside",
-  "end": "room_3_f3",
-  "path": [
-    "outside",
-    "state_hallway_3_f1",
-    "state_elevator_1_f1",
-    "state_elevator_1_f2",
-    "state_elevator_1_f3",
-    "state_hallway_3_f3",
-    "state_room_3_f3"
-  ],
-  "cost": 516.531
-}
-```
+- `GET /api/pathfinding/debug/image?start=A&end=outside`
+  Returns an SVG debug representation of the route.
 
-### 5) Fastest path image (sequence SVG)
+- `GET /api/pathfinding/debug/map?start=A&end=outside`
+  Returns an SVG map view of the route using room geometry from Neo4j.
 
-- `GET /api/pathfinding/fastest/image?start=transition_space_outside&end=room_3_f3`
-- Returns: `image/svg+xml`
+## What Neo4j is used for
 
-Example:
+Neo4j is the shared source of truth for building structure and room records.
 
-![Fastest Path Sequence Example](./docs/images/fastest_path_example.svg)
+The middleware uses it to:
 
-### 6) Fastest path map (floor map SVG with route line)
+- fetch room names
+- build the room/door graph used for routing
+- read room geometry for SVG map output
+- store room object detections and generated room-image data
 
-- `GET /api/pathfinding/fastest/map?start=transition_space_outside&end=room_3_f3`
-- Returns: `image/svg+xml`
+If the graph data is incomplete or inconsistent, the API still runs, but route quality and room matching will reflect the stored data.
 
-Example:
+## Model behavior
 
-![Route Map Example](./docs/images/route_map_example.png)
+The room-summary feature uses Ultralytics YOLO.
 
-## Request Examples
+Model selection works like this:
 
-### JSON path
+- if `model_name` is provided, the service looks it up in `modelConfig.cfg`
+- otherwise it uses `YOLO_MODEL_PROFILE` if set
+- if no profile is selected, it falls back to `YOLO_MODEL_PATH`
+- if the configured model file does not exist but matches a supported YOLO11 filename, the service attempts to download it automatically
 
-```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3"
-```
+Class labels can be overridden through `CLASS_CONFIG_PATH`. If that is not set, the app looks for `classConfig.cfg` and then `classConf.cfg`.
 
-### Sequence image
+The runtime also creates cache directories under `.cache/` unless you override them with environment variables.
 
-```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest/image" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3" \
-  -o fastest_path.svg
-```
+## Important request expectations
 
-### Map image
+- Room-summary endpoints require exactly four images.
+- `room_name` is required for `/room-summary/by-room` and `/room-objects-detection`.
+- Pathfinding expects the Neo4j database to contain room and door relationships that describe the building layout.
+- The room-object storage route expects Neo4j room nodes that can be matched by room name or id.
 
-```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest/map" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3" \
-  -o route_map.svg
-```
+## Configuration
 
-## Run Locally
+The app loads configuration from environment variables and also reads `app.cfg` or `.env` automatically.
 
-```bash
-cd backend
-uvicorn backend.main:app --host 0.0.0.0 --port 6969
-```
+Common application and Neo4j settings:
 
-## Docker
+- `API_TITLE`
+- `API_VERSION`
+- `BACKEND_PORT`
+- `NEO4J_URI`
+- `NEO4J_USER`
+- `NEO4J_PASSWORD`
+- `NEO4J_AUTH`
 
-### Build image
+Room-summary and model settings:
+
+- `YOLO_MODEL_PATH`
+- `YOLO_MODEL_PROFILE`
+- `MODEL_CONFIG_PATH`
+- `CLASS_CONFIG_PATH`
+- `YOLO_CONFIDENCE_THRESHOLD`
+- `VECTOR_PALETTE_SIZE`
+- `MAX_VECTOR_WIDTH`
+- `ROOM_SUMMARY_CACHE_DIR`
+- `MPLCONFIGDIR`
+- `YOLO_CONFIG_DIR`
+
+## Run locally
+
+Install dependencies:
 
 ```bash
-cd backend
-docker build -f Dockerfile -t topology-pathfinding:latest .
+pip install -r requirements.txt
 ```
 
-### Run image
+Start the API:
 
 ```bash
-docker run --rm -p 6969:6969 --env-file app.cfg --add-host host.docker.internal:host-gateway topology-pathfinding:latest
+uvicorn middleware:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Run with Docker Compose (Neo4j + backend)
+If you want to use the configured backend port from `app.cfg`, run uvicorn with that same port value yourself. The config file is read by the application, but uvicorn still uses the port you pass on startup.
 
-```bash
-cd backend
-docker compose up --build
-```
+## Project structure
 
-Notes:
+- `middleware.py`
+  Main FastAPI app, room-summary routes, and lifespan hooks.
 
-- Backend API: `http://localhost:6969`
+- `db.py`
+  Neo4j driver creation, startup connectivity check, and shutdown cleanup.
+
+- `routes_pathfinding.py`
+  Pathfinding API routes.
+
+- `room_summary/`
+  Model loading, detection, image summarization, and Neo4j room updates.
+
+- `pathfinding/`
+  Graph loading, shortest-path calculation, and SVG rendering.
+
+## In one sentence
+
+This middleware is the API layer that connects room-image analysis and Neo4j-backed indoor navigation in one service.

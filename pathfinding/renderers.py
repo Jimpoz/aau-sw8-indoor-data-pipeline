@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from .models import FastestPathResult, SpaceRect, StatePosition
 
@@ -77,7 +77,7 @@ class PathMapSvgRenderer:
         state_positions: Dict[str, StatePosition],
     ) -> str:
         if not rects_by_floor:
-            raise ValueError("No GeneralSpace geometry found in Neo4j.")
+            raise ValueError("No Room geometry found in Neo4j.")
 
         all_rects = [rect for floor_rects in rects_by_floor.values() for rect in floor_rects]
         min_x = min(rect.x for rect in all_rects)
