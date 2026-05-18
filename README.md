@@ -1,249 +1,161 @@
 # Indoor Data Pipeline
 
-This part of project was implemented a data-pipeline based on the [paper](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10099457).
+Stateless conversion service that translates upstream floor-plan formats into the canonical `MapImportSchema` JSON the spatial backend consumes. Today it speaks DXF / DWG; future stages can add IFC, BIM exports, etc. behind the same `/api/*/parse` shape.
 
-This backend part exposes pathfinding APIs over the topology graph stored in Neo4j.
-It supports:
-
-- listing available navigation names
-- fastest-path computation using Dijkstra
-- route visualization as SVG (sequence view + floor map view)
+The pipeline has **no database connection**. It only parses bytes and returns JSON — the spatial backend takes that JSON and performs the Neo4j + PostGIS writes via its existing `ImportService`.
 
 ## Architecture
 
-Main files:
+```
+[mapmaker / iOS]
+       |
+       v
+[middleware] -> [backend POST /campuses/import-dxf]
+                       |
+                       |  multipart upload (file + form metadata)
+                       v
+              [pipeline POST /api/dxf/parse]   <-- this service
+              (ezdxf + shapely + classify)
+                       |
+                       |  {schema: MapImportSchema, summary: {...}}
+                       v
+        [backend ImportService -> Neo4j + PostGIS]
+```
 
-- `main.py`: FastAPI app + startup/shutdown lifecycle
-- `routes_pathfinding.py`: API routes
-- `ROUTES_INPUTS.md`: route input reference (query params, validation, examples)
-- `db.py`: Neo4j driver init/close
-- `pathfinding/`: object-oriented pathfinding module
+Why a separate service:
 
-Object-oriented pathfinding module:
+- the spatial backend stays small; the heavy CAD libs (`ezdxf`, `shapely`, LibreDWG native build) only live in this image.
+- swappable: a different group can rewrite the parser in any language as long as it speaks the same `POST /api/dxf/parse` contract.
+- adding new input formats (IFC, JSON dumps from other CAD tools) is a new route here, no changes to the backend image.
 
-- `pathfinding/service.py`:
-  - `PathfindingService`: orchestration facade used by routes
-- `pathfinding/repository.py`:
-  - `PathfindingRepository`: Neo4j queries (states, graph edges, map geometry)
-- `pathfinding/pathfinder.py`:
-  - `DijkstraPathfinder`: shortest-path algorithm
-- `pathfinding/renderers.py`:
-  - `PathSvgRenderer`: step-by-step path image
-  - `PathMapSvgRenderer`: floor map + route line
-- `pathfinding/query_runner.py`:
-  - `Neo4jQueryRunner`: runs Cypher for Session/Driver
-- `pathfinding/models.py`:
-  - dataclasses (`FastestPathResult`, map geometry models)
+## Layout
 
-## Function Inputs and Outputs
+```
+aau-sw8-indoor-data-pipeline/
+  main.py                # FastAPI app, mounts the DXF router
+  routes_dxf.py          # POST /api/dxf/parse
+  dxf/
+    __init__.py
+    helpers.py           # label classifier, polygon hygiene, DWG transcode
+    normalize.py         # Stage 1: bytes -> normalized JSON
+    convert.py           # Stage 2: normalized JSON -> MapImportSchema
+  Dockerfile             # python:3.11-slim + LibreDWG + (optional) ODA
+  requirements.txt       # fastapi, uvicorn, ezdxf, shapely, python-multipart
+  app.cfg                # legacy config template (kept for reference)
+  pathfinding/           # legacy IEEE-paper prototype (see "Legacy" below)
+  routes_pathfinding.py  # legacy router (not mounted in main.py)
+  ROUTES_INPUTS.md       # legacy route reference
+  images/
+```
 
-### API route functions (`routes_pathfinding.py`)
-
-| Function | Inputs | Output | Errors |
-|---|---|---|---|
-| `get_all_state_names()` | none | `{"names": list[str]}` | `500` on backend/DB errors |
-| `get_room_names_by_floor(floor)` | `floor: int >= 1` (query param) | `{"floor": int, "names": list[str]}` | `500` on backend/DB errors |
-| `get_fastest_path(start, end="outside")` | `start: str`, `end: str` (query params) | `{"start": str, "end": str, "path": list[str], "cost": float}` | `404` when no/unknown path target, `500` otherwise |
-| `get_fastest_path_image(start, end="outside")` | `start: str`, `end: str` | `Response(image/svg+xml)` | `404` when no/unknown path target, `500` otherwise |
-| `get_fastest_path_map(start, end="outside")` | `start: str`, `end: str` | `Response(image/svg+xml)` | `404` when no/unknown path target, `500` otherwise |
-
-### Service layer (`pathfinding/service.py`)
-
-| Function                                                   | Inputs                             | Output                                            |
-| ------------------------------------------------------------| ------------------------------------| ---------------------------------------------------|
-| `PathfindingService(conn)`                                 | `conn: neo4j Driver/Session`       | service instance                                  |
-| `list_all_names()`                                         | none                               | `list[str]`                                       |
-| `list_room_names_by_floor(floor)`                          | `floor: int`                       | `list[str]`                                       |
-| `find_fastest_path(start_name, end_name="outside")`        | `start_name: str`, `end_name: str` | `FastestPathResult(path: list[str], cost: float)` |
-| `build_fastest_path_svg(start_name, end_name, result)`     | `str, str, FastestPathResult`      | `str` (SVG markup)                                |
-| `build_fastest_path_map_svg(start_name, end_name, result)` | `str, str, FastestPathResult`      | `str` (SVG markup)                                |
-
-### Data access layer (`pathfinding/repository.py`)
-
-| Function | Inputs | Output | Why |
-|---|---|---|---|
-| `list_state_names()` | none | `list[str]` | names shown to API clients |
-| `list_room_names_by_floor(floor)` | `floor: int` | `list[str]` | room listing by floor |
-| `build_state_graph()` | none | `StateGraph(adjacency, lookup)` | graph for Dijkstra routing |
-| `load_map_rects()` | none | `dict[int, list[SpaceRect]]` | floor/room rectangles for map rendering |
-| `load_state_positions()` | none | `dict[str, StatePosition]` | state coordinates to draw route line |
-
-### Algorithm and rendering functions
-
-| File / Function | Inputs | Output |
-|---|---|---|
-| `pathfinding/pathfinder.py` -> `DijkstraPathfinder.find_fastest_path(graph, start_name, end_name)` | `StateGraph`, `str`, `str` | `FastestPathResult` |
-| `pathfinding/renderers.py` -> `PathSvgRenderer.render(start_name, end_name, result)` | `str`, `str`, `FastestPathResult` | `str` (SVG sequence image) |
-| `pathfinding/renderers.py` -> `PathMapSvgRenderer.render(start_name, end_name, result, rects_by_floor, state_positions)` | `str`, `str`, `FastestPathResult`, map geometry, state coords | `str` (SVG floor map image) |
-
-### Startup/DB functions
-
-| File / Function | Inputs | Output |
-|---|---|---|
-| `db.py` -> `initialize_neo4j_schema()` | none | `None` (connectivity check with retry) |
-| `db.py` -> `close_neo4j()` | none | `None` |
-| `main.py` -> `lifespan(app)` | `FastAPI app` | async context manager for startup/shutdown |
-| `main.py` -> `health()` | none | `{"status": "ok"}` |
-
-## Data Model (Neo4j)
-
-The backend reads these labels/relations generated by topology export:
-
-- Node labels:
-  - `GeneralSpace`: room/hallway/elevator/escalator geometry + metadata
-  - `State`: navigation node used for pathfinding
-  - `Transition`: door transition node
-  - `TransitionSpace`: outside space
-  - `CellSpaceBoundary`: door boundary node
-  - `CellSpaceBoundaryGeometry`: boundary geometry (`LINESTRING`)
-  - `Floor`: floor index
-- Relationships:
-  - `PATH`: weighted state-to-state edges (`cost`)
-  - `DUALITY`: semantic pair mapping (`State` <-> `GeneralSpace`/`TransitionSpace`)
-  - `CONNECTS`: state-transition links
-  - `PARTIALBOUNDEDBY`: spaces to door boundaries
-  - `HAS_GEOMETRY`: boundary to geometry
-  - `HAS_FLOOR`: floor assignment
-
-### Visual: Neo4j model overview
-
-![Neo4j Model Overview](./docs/images/neo4j_model_overview.jpg)
-
-## API Endpoints
+## Endpoints
 
 Base URL: `http://localhost:6969`
 
-For a route-input-only reference, see: [`ROUTES_INPUTS.md`](./ROUTES_INPUTS.md)
-
-### 1) Health
-
-- `GET /health`
-- Response:
+### `GET /health`
 
 ```json
 { "status": "ok" }
 ```
 
-### 2) List all state names
+### `POST /api/dxf/parse`
 
-- `GET /api/pathfinding/names`
-- Response:
+`multipart/form-data` body:
 
-```json
-{
-  "names": ["outside", "state_hallway_1_f1", "state_room_3_f2"]
-}
-```
+| field                       | required | default        | notes                                              |
+| --------------------------- | -------- | -------------- | -------------------------------------------------- |
+| `file`                      | yes      |                | the `.dxf` (or `.dwg`) bytes                       |
+| `campus_id`                 | yes      |                |                                                    |
+| `campus_name`               | yes      |                |                                                    |
+| `building_id`               | yes      |                |                                                    |
+| `building_name`             | yes      |                |                                                    |
+| `floor_id`                  | yes      |                |                                                    |
+| `floor_index`               | no       | `0`            |                                                    |
+| `floor_display_name`        | no       | `"Ground"`     |                                                    |
+| `organization_id`           | no       |                |                                                    |
+| `organization_name`         | no       |                |                                                    |
+| `organization_entity_type`  | no       | `"UNIVERSITY"` |                                                    |
+| `organization_description`  | no       |                |                                                    |
+| `campus_description`        | no       |                |                                                    |
+| `building_short_name`       | no       | first word of `building_name` |                                  |
+| `origin_bearing`            | no       | `0.0`          | degrees                                            |
+| `layer_mapping`             | no       |                | JSON object `{"LAYER_NAME": "SPACE_TYPE"}`         |
 
-### 3) List room names by floor
-
-- `GET /api/pathfinding/rooms?floor=2`
-- Response:
-
-```json
-{
-  "floor": 2,
-  "names": ["hallway_1_f2", "room_2_f2", "room_3_f2"]
-}
-```
-
-### 4) Fastest path (JSON)
-
-- `GET /api/pathfinding/fastest?start=transition_space_outside&end=room_3_f3`
-- Response:
+Response:
 
 ```json
 {
-  "start": "transition_space_outside",
-  "end": "room_3_f3",
-  "path": [
-    "outside",
-    "state_hallway_3_f1",
-    "state_elevator_1_f1",
-    "state_elevator_1_f2",
-    "state_elevator_1_f3",
-    "state_hallway_3_f3",
-    "state_room_3_f3"
-  ],
-  "cost": 516.531
+  "schema": { "...MapImportSchema dict..." },
+  "summary": {
+    "rooms_detected": 42,
+    "doors_inferred": 36,
+    "arc_candidates_filtered": 51,
+    "unit_scale_m": 0.001,
+    "warnings": ["..."],
+    "label_stats": { "rooms_with_contained_label": 38, "...": "..." },
+    "classification_summary": { "ROOM_OFFICE": 12, "CORRIDOR": 4, "...": "..." }
+  }
 }
 ```
 
-### 5) Fastest path image (sequence SVG)
+Errors:
 
-- `GET /api/pathfinding/fastest/image?start=transition_space_outside&end=room_3_f3`
-- Returns: `image/svg+xml`
+- `415` — input was a `.dwg` and no transcoder (`dwgread` or `ODAFileConverter`) is on PATH in the container
+- `422` — empty file, malformed `layer_mapping`, or DXF too damaged to recover
+- `500` — anything else from the parse pipeline
 
-Example:
+## Run
 
-![Fastest Path Sequence Example](./docs/images/fastest_path_example.svg)
+### Docker (recommended)
 
-### 6) Fastest path map (floor map SVG with route line)
+The pipeline is typically run as part of the spatial-backend compose stack — see `aau-sw8-spatial-backend/docker-compose.yml` for the `indoor_data_pipeline` service entry.
 
-- `GET /api/pathfinding/fastest/map?start=transition_space_outside&end=room_3_f3`
-- Returns: `image/svg+xml`
-
-Example:
-
-![Route Map Example](./docs/images/route_map_example.png)
-
-## Request Examples
-
-### JSON path
+### Standalone
 
 ```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3"
+docker build -t indoor-data-pipeline:latest .
+docker run --rm -p 6969:6969 indoor-data-pipeline:latest
 ```
 
-### Sequence image
+### Local Python
 
 ```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest/image" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3" \
-  -o fastest_path.svg
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 6969
 ```
 
-### Map image
+### Smoke test
 
 ```bash
-curl -G "http://localhost:6969/api/pathfinding/fastest/map" \
-  --data-urlencode "start=transition_space_outside" \
-  --data-urlencode "end=room_3_f3" \
-  -o route_map.svg
+curl -X POST http://localhost:6969/api/dxf/parse \
+  -F "file=@../ACM-stue.dxf" \
+  -F "campus_id=campus-aau-cph" \
+  -F "campus_name=AAU CPH" \
+  -F "building_id=bldg-acm15" \
+  -F "building_name=A.C. Meyers Vænge 15" \
+  -F "floor_id=bldg-acm15-0" \
+  -F "floor_index=0" \
+  -F "floor_display_name=Stue"
 ```
 
-## Run Locally
+## CLI scripts
 
-```bash
-cd backend
-uvicorn backend.main:app --host 0.0.0.0 --port 6969
-```
+The repo-root `scripts/` directory ships thin CLI wrappers around the same `dxf/` modules:
 
-## Docker
+- `scripts/dxf_normalize.py file.dxf` — Stage 1 only, writes `file_normalized.json`
+- `scripts/normalized_to_export.py file_normalized.json` — Stage 2 only
+- `scripts/dxf_pipeline.py file.dxf` — both stages, writes `file_export.json`
 
-### Build image
+They add this directory to `sys.path` so the imports resolve without needing the container.
 
-```bash
-cd backend
-docker build -f Dockerfile -t topology-pathfinding:latest .
-```
+## Legacy: IEEE-paper pathfinding prototype
 
-### Run image
+This directory previously held a separate prototype that implemented the indoor topology + pathfinding pipeline described in [IEEE 10099457](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10099457). Those files are preserved as-is for reference but **not** mounted in the current `main.py`:
 
-```bash
-docker run --rm -p 6969:6969 --env-file app.cfg --add-host host.docker.internal:host-gateway topology-pathfinding:latest
-```
+- `routes_pathfinding.py`
+- `pathfinding/` (service / repository / Dijkstra / SVG renderers / models)
+- `ROUTES_INPUTS.md`
 
-### Run with Docker Compose (Neo4j + backend)
+They depended on local `.config` and `.db` modules that were never checked into the repository, so they could not be started anyway. If someone wants to revive them, author those two modules and add `app.include_router(pathfinding_router)` back in `main.py`.
 
-```bash
-cd backend
-docker compose up --build
-```
-
-Notes:
-
-- Backend API: `http://localhost:6969`
+![Indoor topology](./images/indoor_topology.png)

@@ -1,28 +1,18 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 
-from .config import settings
-from .db import close_neo4j, initialize_neo4j_schema
-from .routes_pathfinding import router as pathfinding_router
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    initialize_neo4j_schema()
-    yield
-    close_neo4j()
+from routes_dxf import router as dxf_router
 
 
 app = FastAPI(
-    title=settings.api_title,
-    version=settings.api_version,
-    lifespan=lifespan,
+    title=os.getenv("API_TITLE", "Indoor Data Pipeline"),
+    version=os.getenv("API_VERSION", "1.0.0"),
 )
 
-app.include_router(pathfinding_router)
+app.include_router(dxf_router)
 
 
 @app.get("/health")
