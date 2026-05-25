@@ -1,0 +1,1271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Floor Data Tool</title>
+  <style>
+    :root {
+      --page: #f6f7f8;
+      --surface: #ffffff;
+      --surface-soft: #f8fafb;
+      --line: #d7dee4;
+      --line-strong: #bcc8d1;
+      --text: #202a33;
+      --muted: #64717d;
+      --heading: #4c5964;
+      --accent: #2f6f73;
+      --accent-strong: #285f63;
+      --danger: #9a3b32;
+      --success: #2f6b45;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--page);
+      color: var(--text);
+    }
+    header {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: #26323d;
+      color: #fff;
+      border-bottom: 1px solid #1c252d;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    header .status {
+      min-width: 160px;
+      text-align: right;
+      font-size: 13px;
+      color: #d7dee4;
+    }
+    main {
+      height: calc(100vh - 58px);
+      overflow: auto;
+      padding: 16px;
+    }
+    .shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tab {
+      border: 0;
+      border-bottom: 3px solid transparent;
+      border-radius: 0;
+      padding: 10px 4px 11px;
+      background: transparent;
+      color: var(--muted);
+      min-height: 42px;
+    }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .page { display: none; }
+    .page.active {
+      display: grid;
+      grid-template-columns: minmax(340px, 430px) 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    .stack {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--heading);
+      letter-spacing: 0;
+      font-weight: 750;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .field {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .id-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    label {
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--heading);
+    }
+    input, select, textarea {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+    }
+    textarea {
+      min-height: 180px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      background: var(--surface-soft);
+      border-color: var(--line);
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      min-height: 16px;
+      margin: 0;
+    }
+    .check {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      min-height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 8px 12px;
+      background: var(--surface-soft);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 14px;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button:hover:not(:disabled) {
+      border-color: var(--accent);
+    }
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-strong);
+      border-color: var(--accent-strong);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: var(--surface-soft);
+      min-height: 68px;
+    }
+    .metric span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .metric strong {
+      font-size: 20px;
+      color: var(--text);
+    }
+    .file-list {
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .file-row {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 10px;
+      align-items: center;
+      min-width: 0;
+    }
+    .file-row span {
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .file-row strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--heading);
+      font-weight: 700;
+      background: var(--surface-soft);
+    }
+    .muted { color: var(--muted); font-size: 12px; }
+    .error { color: var(--danger); }
+    .ok { color: var(--success); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    input.mono {
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .scroll-value {
+      width: 100%;
+      min-height: 36px;
+      overflow-x: auto;
+      white-space: nowrap;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--surface-soft);
+      color: var(--text);
+      user-select: text;
+    }
+    .file-picker-list {
+      min-height: 122px;
+      overflow: auto;
+    }
+    @media (max-width: 940px) {
+      main {
+        height: auto;
+        overflow: visible;
+      }
+      .page.active {
+        grid-template-columns: 1fr;
+      }
+      .summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .grid,
+      .grid.three {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Floor Data Tool</h1>
+    <div class="status" id="app-status">Ready</div>
+  </header>
+
+  <main>
+    <div class="shell">
+      <nav class="tabs" aria-label="Workflow pages">
+        <button class="tab active" id="tab-make-plan" data-page="make-plan">Make Floor Plan</button>
+        <button class="tab" id="tab-read-floor-plan" data-page="read-floor-plan">Read Floor Plan</button>
+        <button class="tab" id="tab-push-floor" data-page="push-floor">Push to Floor</button>
+      </nav>
+
+      <section class="page active" id="page-make-plan">
+        <div class="stack">
+          <div class="panel">
+            <h2>Map API</h2>
+            <div class="field">
+              <label for="server-url">Map API URL</label>
+              <input id="server-url" placeholder="https://your-map-api.example">
+            </div>
+            <div class="field">
+              <label for="auth-token">Bearer Token</label>
+              <input id="auth-token" type="password" autocomplete="off">
+            </div>
+            <div class="grid">
+              <div class="field">
+                <label for="organization-select">Organization</label>
+                <select id="organization-select"></select>
+              </div>
+              <div class="field">
+                <label for="campus-select">Campus</label>
+                <select id="campus-select"></select>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="load-server" class="primary">Connect API</button>
+              <button id="load-floors">Load Floors</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Target Floor</h2>
+            <div class="grid">
+              <div class="field">
+                <label for="building-select">Building</label>
+                <select id="building-select"></select>
+              </div>
+              <div class="field">
+                <label for="floor-select">Floor</label>
+                <select id="floor-select"></select>
+              </div>
+            </div>
+            <div class="id-list">
+              <div class="field">
+                <label for="building-id-display">Building ID</label>
+                <div id="building-id-display" class="scroll-value mono" tabindex="0">-</div>
+                <input id="building-id" type="hidden">
+              </div>
+              <div class="field">
+                <label for="floor-id-display">Floor ID</label>
+                <div id="floor-id-display" class="scroll-value mono" tabindex="0">-</div>
+                <input id="floor-id" type="hidden">
+              </div>
+              <div class="field">
+                <label for="floor-index-display">Floor Index</label>
+                <div id="floor-index-display" class="scroll-value mono" tabindex="0">0</div>
+                <input id="floor-index" type="hidden" value="0">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <h2>Floor Plan</h2>
+            <div class="grid">
+              <div class="field">
+                <label for="floor-plan-format">File Format</label>
+                <select id="floor-plan-format">
+                  <option value="pdf">PDF</option>
+                  <option value="png">PNG</option>
+                  <option value="svg">SVG</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="floor-plan-output">Save As</label>
+                <input id="floor-plan-output" class="mono" list="save-files" placeholder="outputs/floor_plan.pdf">
+                <datalist id="save-files"></datalist>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="make-floor-plan-btn" class="primary">Create Floor Plan</button>
+              <button id="save-created-plan-btn">Save To Computer</button>
+              <button id="go-read">Open Read Floor Plan</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Created File</h2>
+            <div class="file-list">
+              <div class="file-row"><span>File</span><strong id="floor-plan-label" class="mono">-</strong></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Campus Floors</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Building</th>
+                  <th>Floor</th>
+                  <th>Index</th>
+                  <th>Spaces</th>
+                </tr>
+              </thead>
+              <tbody id="floor-table">
+                <tr><td colspan="4" class="muted">No target data loaded.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-read-floor-plan">
+        <div class="stack">
+          <div class="panel">
+            <h2>Floor Plan</h2>
+            <div class="field">
+              <label for="source-path">Choose Floor Plan</label>
+              <input id="source-path" list="source-files" placeholder="path/to/floor-plan">
+              <datalist id="source-files"></datalist>
+              <input id="source-file-picker" type="file" accept=".png,.jpg,.jpeg,.pdf" hidden>
+            </div>
+            <div class="field">
+              <label for="source-file-select">Local Files</label>
+              <select id="source-file-select" class="file-picker-list mono" size="6"></select>
+              <div id="source-file-status" class="muted">No files loaded.</div>
+            </div>
+            <div class="actions">
+              <button id="choose-source-file-btn">Choose From Computer</button>
+              <button id="refresh-files">Refresh Files</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Extraction</h2>
+            <div class="grid three">
+              <div class="field">
+                <label for="scale-bar">Scale Bar Meters</label>
+                <input id="scale-bar" type="number" step="0.1" value="20">
+              </div>
+              <div class="field">
+                <label for="pixels-meter">Pixels Per Meter</label>
+                <input id="pixels-meter" type="number" step="0.01">
+              </div>
+              <div class="field">
+                <label for="ocr-language">OCR Language</label>
+                <input id="ocr-language" value="eng+dan">
+              </div>
+              <div class="field">
+                <label for="ocr-conf">OCR Min Confidence</label>
+                <input id="ocr-conf" type="number" step="1" value="5">
+              </div>
+              <div class="field">
+                <label for="ocr-crop-scale">OCR Crop Scale</label>
+                <input id="ocr-crop-scale" type="number" step="0.5" value="7">
+              </div>
+              <div class="field">
+                <label for="room-id-mode">Room ID Mode</label>
+                <select id="room-id-mode">
+                  <option value="sequence">CVR sequence</option>
+                  <option value="name-slug">Name slug</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid three">
+              <label class="field check"><input id="run-ocr" type="checkbox" checked> OCR rooms</label>
+              <label class="field check"><input id="door-crop-ocr" type="checkbox"> OCR door IDs</label>
+            </div>
+            <div class="actions">
+              <button id="read-floor-plan-btn" class="primary">Read Floor Plan</button>
+              <button id="go-push">Open Push to Floor</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <h2>Summary</h2>
+            <div class="summary">
+              <div class="metric"><span>Rooms</span><strong id="metric-rooms">-</strong></div>
+              <div class="metric"><span>Doors</span><strong id="metric-doors">-</strong></div>
+              <div class="metric"><span>Spaces</span><strong id="metric-spaces">-</strong></div>
+              <div class="metric"><span>Connections</span><strong id="metric-connections">-</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-push-floor">
+        <div class="stack">
+          <div class="panel">
+            <h2>Map API Destination</h2>
+            <div class="field">
+              <label for="push-server-url">Map API URL</label>
+              <input id="push-server-url" placeholder="https://your-map-api.example">
+            </div>
+            <div class="field">
+              <label for="push-auth-token">Bearer Token</label>
+              <input id="push-auth-token" type="password" autocomplete="off">
+            </div>
+            <div class="grid">
+              <div class="field">
+                <label for="push-organization-select">Organization</label>
+                <select id="push-organization-select"></select>
+              </div>
+              <div class="field">
+                <label for="push-campus-select">Campus</label>
+                <select id="push-campus-select"></select>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="push-load-server">Connect API</button>
+              <button id="push-load-floors">Load Floors</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Target Floor</h2>
+            <div class="grid">
+              <div class="field">
+                <label for="push-building-select">Building</label>
+                <select id="push-building-select"></select>
+              </div>
+              <div class="field">
+                <label for="push-floor-select">Floor</label>
+                <select id="push-floor-select"></select>
+              </div>
+            </div>
+            <div class="id-list">
+              <div class="field">
+                <label for="push-building-id-display">Building ID</label>
+                <div id="push-building-id-display" class="scroll-value mono" tabindex="0">-</div>
+              </div>
+              <div class="field">
+                <label for="push-floor-id-display">Floor ID</label>
+                <div id="push-floor-id-display" class="scroll-value mono" tabindex="0">-</div>
+              </div>
+              <div class="field">
+                <label for="push-floor-index-display">Floor Index</label>
+                <div id="push-floor-index-display" class="scroll-value mono" tabindex="0">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <h2>Import Files</h2>
+            <div class="field">
+              <label for="push-details-path">Detected Floor Data</label>
+              <input id="push-details-path" class="mono" list="save-files" placeholder="outputs/floor_details.json">
+            </div>
+            <div class="field">
+              <label for="push-import-path">Floor Import File</label>
+              <input id="push-import-path" class="mono" list="save-files" placeholder="outputs/floor_import.json">
+            </div>
+            <div class="grid">
+              <label class="field check"><input id="include-rooms" type="checkbox" checked> Include rooms</label>
+              <label class="field check"><input id="chunk-import" type="checkbox" checked> Chunk upload</label>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Floor Target</h2>
+            <div class="file-list">
+              <div class="file-row"><span>Server</span><strong id="push-summary-server" class="mono">-</strong></div>
+              <div class="file-row"><span>Campus</span><strong id="push-summary-campus">-</strong></div>
+              <div class="file-row"><span>Building</span><strong id="push-summary-building">-</strong></div>
+              <div class="file-row"><span>Floor</span><strong id="push-summary-floor">-</strong></div>
+              <div class="file-row"><span>File</span><strong id="push-summary-file" class="mono">-</strong></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Push Actions</h2>
+            <div class="actions">
+              <button id="prepare-floor-import-btn" class="primary">Prepare Floor Data</button>
+              <button id="push-floor-import-btn">Push to Floor</button>
+              <button id="verify-btn">Verify Floor</button>
+              <button id="run-all-btn" class="primary">Prepare + Push + Verify</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="panel">
+        <h2>Log</h2>
+        <textarea id="log" readonly></textarea>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const state = {
+      organizations: [],
+      campuses: [],
+      exportSummary: null,
+      exportPath: "",
+      detectedDataPath: "outputs/floor_details.json",
+      floorImportPath: "outputs/floor_import.json",
+      floorPlanPath: "",
+      floorPlanDefaultPath: "",
+      floorPlanOutputUserEdited: false,
+      syncingPushControls: false,
+      busy: false
+    };
+
+    function setStatus(text, kind) {
+      const el = $("app-status");
+      el.textContent = text;
+      el.className = `status ${kind || ""}`;
+    }
+
+    function log(message, data) {
+      const time = new Date().toLocaleTimeString();
+      const body = data == null ? message : `${message}\n${JSON.stringify(data, null, 2)}`;
+      $("log").value += `[${time}] ${body}\n\n`;
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: body == null ? "GET" : "POST",
+        headers: body == null ? {} : { "Content-Type": "application/json" },
+        body: body == null ? undefined : JSON.stringify(body)
+      });
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; }
+      catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    async function uploadFloorPlan(file) {
+      return withBusy("Adding floor plan", async () => {
+        const buffer = await file.arrayBuffer();
+        const data = await api("/api/upload-floor-plan", {
+          name: file.name,
+          content_base64: arrayBufferToBase64(buffer)
+        });
+        $("source-path").value = data.file.path;
+        await refreshFiles();
+        log("Floor plan selected", data.file);
+        return data;
+      });
+    }
+
+    async function withBusy(label, fn) {
+      if (state.busy) return;
+      state.busy = true;
+      setStatus(label);
+      for (const btn of document.querySelectorAll("button")) btn.disabled = true;
+      try {
+        const result = await fn();
+        setStatus("Ready", "ok");
+        return result;
+      } catch (err) {
+        setStatus("Error", "error");
+        log(`Error: ${err.message}`);
+        throw err;
+      } finally {
+        state.busy = false;
+        for (const btn of document.querySelectorAll("button")) btn.disabled = false;
+      }
+    }
+
+    function showPage(page) {
+      for (const el of document.querySelectorAll(".page")) {
+        el.classList.toggle("active", el.id === `page-${page}`);
+      }
+      for (const el of document.querySelectorAll(".tab")) {
+        el.classList.toggle("active", el.dataset.page === page);
+      }
+      if (page === "push-floor") syncPushFromMain();
+    }
+
+    function serverBody() {
+      return {
+        server_url: $("server-url").value.trim(),
+        token: $("auth-token").value.trim()
+      };
+    }
+
+    function copySelectState(sourceId, targetId) {
+      const source = $(sourceId);
+      const target = $(targetId);
+      if (!source || !target) return;
+      target.innerHTML = source.innerHTML;
+      target.value = source.value;
+    }
+
+    function syncPushFromMain() {
+      if (!$("push-server-url") || state.syncingPushControls) return;
+      state.syncingPushControls = true;
+      $("push-server-url").value = $("server-url").value;
+      $("push-auth-token").value = $("auth-token").value;
+      copySelectState("organization-select", "push-organization-select");
+      copySelectState("campus-select", "push-campus-select");
+      copySelectState("building-select", "push-building-select");
+      copySelectState("floor-select", "push-floor-select");
+      $("push-building-id-display").textContent = $("building-id-display").textContent;
+      $("push-floor-id-display").textContent = $("floor-id-display").textContent;
+      $("push-floor-index-display").textContent = $("floor-index-display").textContent;
+      $("push-details-path").value = state.detectedDataPath;
+      $("push-import-path").value = state.floorImportPath;
+      renderPushSummary();
+      state.syncingPushControls = false;
+    }
+
+    function syncMainServerFromPush() {
+      if (state.syncingPushControls) return;
+      $("server-url").value = $("push-server-url").value;
+      $("auth-token").value = $("push-auth-token").value;
+      $("organization-select").value = $("push-organization-select").value;
+      $("campus-select").value = $("push-campus-select").value;
+      renderPushSummary();
+    }
+
+    function syncMainBuildingFromPush() {
+      if (state.syncingPushControls) return;
+      $("building-select").value = $("push-building-select").value;
+      renderFloors();
+      syncPushFromMain();
+    }
+
+    function syncMainFloorFromPush() {
+      if (state.syncingPushControls) return;
+      $("floor-select").value = $("push-floor-select").value;
+      syncTargetFields();
+      syncPushFromMain();
+    }
+
+    async function loadServerFromPush() {
+      syncMainServerFromPush();
+      await loadServer();
+    }
+
+    async function loadFloorsFromPush() {
+      syncMainServerFromPush();
+      await loadFloors();
+    }
+
+    function selectedDetectedDataPath() {
+      const value = $("push-details-path")?.value.trim();
+      if (value) state.detectedDataPath = value;
+      return state.detectedDataPath;
+    }
+
+    function selectedFloorImportPath() {
+      const value = $("push-import-path")?.value.trim();
+      if (value) state.floorImportPath = value;
+      return state.floorImportPath;
+    }
+
+    function renderPushSummary() {
+      if (!$("push-summary-server")) return;
+      const target = targetBody();
+      $("push-summary-server").textContent = $("server-url").value.trim() || "-";
+      $("push-summary-campus").textContent = target.campus_name || target.campus_id || "-";
+      $("push-summary-building").textContent = target.building_name || target.building_id || "-";
+      $("push-summary-floor").textContent = target.floor_name ? `${target.floor_name} (${target.floor_index})` : target.floor_id || "-";
+      $("push-summary-file").textContent = state.floorImportPath || "-";
+    }
+
+    function selectedCampusId() {
+      return $("campus-select").value;
+    }
+
+    function selectedBuilding() {
+      const buildingId = $("building-select").value || $("building-id").value.trim();
+      for (const building of state.exportSummary?.buildings || []) {
+        if (String(building.id) === String(buildingId)) return building;
+      }
+      return null;
+    }
+
+    function selectedFloor() {
+      const floorId = $("floor-select").value || $("floor-id").value.trim();
+      const building = selectedBuilding();
+      for (const floor of building?.floors || []) {
+        if (String(floor.id) === String(floorId)) return floor;
+      }
+      return null;
+    }
+
+    function targetBody() {
+      const campus = state.exportSummary?.campus || {};
+      const org = state.exportSummary?.organization || {};
+      const building = selectedBuilding() || {};
+      const floor = selectedFloor() || {};
+      return {
+        organization_id: org.id || $("organization-select").value || "org-aau",
+        organization_name: org.name || "Aalborg University",
+        campus_id: campus.id || selectedCampusId(),
+        campus_name: campus.name || $("campus-select").selectedOptions[0]?.textContent || "AAU CPH",
+        building_id: building.id || $("building-id").value.trim(),
+        building_name: building.name || $("building-select").selectedOptions[0]?.textContent || "Test",
+        floor_id: floor.id || $("floor-id").value.trim(),
+        floor_name: floor.display_name || $("floor-select").selectedOptions[0]?.textContent || "Test",
+        floor_index: Number(floor.floor_index ?? ($("floor-index").value || 0))
+      };
+    }
+
+    function extractionParams() {
+      return {
+        scale_bar_meters: $("scale-bar").value ? Number($("scale-bar").value) : null,
+        pixels_per_meter: $("pixels-meter").value ? Number($("pixels-meter").value) : null,
+        run_ocr: $("run-ocr").checked,
+        run_door_crop_ocr: $("door-crop-ocr").checked,
+        ocr_language: $("ocr-language").value.trim() || "eng+dan",
+        ocr_min_confidence: Number($("ocr-conf").value || 5),
+        ocr_crop_scale: Number($("ocr-crop-scale").value || 7),
+        image_room_id_mode: $("room-id-mode").value
+      };
+    }
+
+    function floorPlanTypeFromPath(path) {
+      return path.trim().toLowerCase().endsWith(".pdf") ? "pdf" : "image";
+    }
+
+    function slug(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "floor";
+    }
+
+    function suggestedFloorPlanPath() {
+      const building = selectedBuilding();
+      const floor = selectedFloor();
+      const format = $("floor-plan-format").value || "pdf";
+      const buildingName = building?.name || $("building-select").selectedOptions[0]?.textContent || "building";
+      const floorName = floor?.display_name || $("floor-select").selectedOptions[0]?.textContent || "floor";
+      return `outputs/${slug(buildingName)}_${slug(floorName)}_floor_plan.${format}`;
+    }
+
+    function updateFloorPlanSaveAs(force) {
+      const next = suggestedFloorPlanPath();
+      const current = $("floor-plan-output").value.trim();
+      if (force || !state.floorPlanOutputUserEdited || !current) {
+        $("floor-plan-output").value = next;
+        state.floorPlanOutputUserEdited = false;
+      }
+      $("floor-plan-output").placeholder = next;
+      state.floorPlanDefaultPath = next;
+    }
+
+    function floorPlanSaveAsValue() {
+      const value = $("floor-plan-output").value.trim();
+      if (!value) return "";
+      const format = $("floor-plan-format").value || "pdf";
+      return value.replace(/\.[^/.\\]+$/, "") + `.${format}`;
+    }
+
+    function syncFloorPlanExtension() {
+      if (state.floorPlanOutputUserEdited) {
+        const value = floorPlanSaveAsValue();
+        if (value) $("floor-plan-output").value = value;
+        return;
+      }
+      updateFloorPlanSaveAs(true);
+    }
+
+    function markFloorPlanOutputEdited() {
+      state.floorPlanOutputUserEdited = Boolean($("floor-plan-output").value.trim());
+      updateFloorPlanSaveAs(false);
+    }
+
+    function createdPlanName() {
+      return (state.floorPlanPath || "floor_plan").split("/").pop();
+    }
+
+    async function saveCreatedPlan() {
+      if (!state.floorPlanPath) {
+        log("Create a floor plan first");
+        return;
+      }
+      const response = await fetch(`/api/local-file?path=${encodeURIComponent(state.floorPlanPath)}`);
+      if (!response.ok) {
+        log(`Could not read created file: HTTP ${response.status}`);
+        return;
+      }
+      const blob = await response.blob();
+      const format = $("floor-plan-format").value || "pdf";
+      const suggestedName = createdPlanName();
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [{
+            description: "Floor plan",
+            accept: {
+              [format === "pdf" ? "application/pdf" : format === "png" ? "image/png" : "image/svg+xml"]: [`.${format}`]
+            }
+          }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        log("Floor plan saved to computer", { name: suggestedName });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = suggestedName;
+        link.click();
+        URL.revokeObjectURL(url);
+        log("Floor plan download started", { name: suggestedName });
+      }
+    }
+
+    function updateMetrics(data) {
+      if (data.details) {
+        $("metric-rooms").textContent = data.details.rooms ?? "-";
+        $("metric-doors").textContent = data.details.doors ?? "-";
+      }
+      if (data.import) {
+        $("metric-spaces").textContent = data.import.spaces ?? "-";
+        $("metric-connections").textContent = data.import.connections ?? "-";
+      }
+      if (data.floor) {
+        $("metric-spaces").textContent = data.floor.display_spaces ?? data.floor.export_spaces ?? "-";
+        $("metric-connections").textContent = data.floor.export_connections ?? "-";
+        $("metric-rooms").textContent = data.floor.display_rooms ?? data.floor.export_rooms ?? "-";
+        $("metric-doors").textContent = data.floor.display_doors ?? data.floor.unique_door_ids ?? "-";
+      }
+      renderPushSummary();
+    }
+
+    function fillSelect(select, items, placeholder, getValue, getLabel) {
+      select.innerHTML = "";
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = placeholder;
+      select.appendChild(empty);
+      for (const item of items) {
+        const opt = document.createElement("option");
+        opt.value = getValue(item);
+        opt.textContent = getLabel(item);
+        select.appendChild(opt);
+      }
+    }
+
+    async function refreshFiles() {
+      const data = await api("/api/files");
+      const sourceList = $("source-files");
+      const sourceSelect = $("source-file-select");
+      const saveList = $("save-files");
+      const currentSource = $("source-path").value.trim();
+      sourceList.innerHTML = "";
+      sourceSelect.innerHTML = "";
+      saveList.innerHTML = "";
+      const floorPlans = data.floor_plans || [];
+      for (const file of floorPlans) {
+        const opt = document.createElement("option");
+        opt.value = file.path;
+        opt.label = file.name;
+        sourceList.appendChild(opt);
+
+        const row = document.createElement("option");
+        row.value = file.path;
+        row.textContent = file.path;
+        sourceSelect.appendChild(row);
+      }
+      if (floorPlans.length) {
+        sourceSelect.value = currentSource;
+      } else {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "No local files found";
+        empty.disabled = true;
+        sourceSelect.appendChild(empty);
+      }
+      const defaultOpt = document.createElement("option");
+      defaultOpt.value = suggestedFloorPlanPath();
+      defaultOpt.label = "Default";
+      saveList.appendChild(defaultOpt);
+      for (const file of data.save_as || []) {
+        const opt = document.createElement("option");
+        opt.value = file.path;
+        opt.label = file.name;
+        saveList.appendChild(opt);
+      }
+      $("source-file-status").textContent = `${floorPlans.length} local floor plan${floorPlans.length === 1 ? "" : "s"} found`;
+      syncPushFromMain();
+      return data;
+    }
+
+    function useSelectedServerFile() {
+      const value = $("source-file-select").value;
+      if (value) $("source-path").value = value;
+    }
+
+    async function refreshFilesFromButton() {
+      await withBusy("Refreshing files", async () => {
+        const data = await refreshFiles();
+        log("Files refreshed", {
+          local_floor_plans: (data.floor_plans || []).length,
+          save_as_files: (data.save_as || []).length
+        });
+      });
+    }
+
+    async function loadServer() {
+      await withBusy("Connecting API", async () => {
+        const data = await api("/api/server/options", {
+          ...serverBody(),
+          organization_id: $("organization-select").value
+        });
+        state.organizations = data.organizations || [];
+        state.campuses = data.campuses || [];
+        fillSelect(
+          $("organization-select"),
+          state.organizations,
+          "All organizations",
+          item => item.id,
+          item => `${item.name} (${item.entity_type || "OTHER"})`
+        );
+        fillSelect(
+          $("campus-select"),
+          state.campuses,
+          "Select campus",
+          item => item.id,
+          item => item.name
+        );
+        const aau = state.campuses.find(c => c.id === "campus-aau-cph") || state.campuses[0];
+        if (aau) $("campus-select").value = aau.id;
+        syncPushFromMain();
+        log("Map API connected", data.errors?.length ? data.errors : null);
+      });
+    }
+
+    async function loadFloors() {
+      await withBusy("Loading target data", async () => {
+        const data = await api("/api/server/export", {
+          ...serverBody(),
+          campus_id: selectedCampusId()
+        });
+        state.exportSummary = data.summary;
+        state.exportPath = data.export_path;
+        renderExport();
+        syncPushFromMain();
+        log("Target data loaded", { export_path: data.export_path, connections: data.summary.connections_count });
+      });
+    }
+
+    function renderExport() {
+      const buildings = state.exportSummary?.buildings || [];
+      fillSelect($("building-select"), buildings, "Select building", b => b.id, b => b.name);
+      const test = buildings.find(b => String(b.name || "").toLowerCase() === "test") || buildings[0];
+      if (test) $("building-select").value = test.id;
+      renderFloors();
+
+      const rows = [];
+      for (const building of buildings) {
+        for (const floor of building.floors || []) {
+          rows.push(`<tr><td>${escapeHtml(building.name)}</td><td>${escapeHtml(floor.display_name)}</td><td>${floor.floor_index ?? ""}</td><td>${floor.spaces_count}</td></tr>`);
+        }
+      }
+      $("floor-table").innerHTML = rows.length ? rows.join("") : '<tr><td colspan="4" class="muted">No floors found.</td></tr>';
+    }
+
+    function renderFloors() {
+      const building = selectedBuilding();
+      fillSelect($("floor-select"), building?.floors || [], "Select floor", f => f.id, f => f.display_name);
+      const test = (building?.floors || []).find(f => String(f.display_name || "").toLowerCase() === "test") || (building?.floors || [])[0];
+      if (test) $("floor-select").value = test.id;
+      syncTargetFields();
+    }
+
+    function syncTargetFields() {
+      const building = selectedBuilding();
+      const floor = selectedFloor();
+      $("building-id").value = building?.id || "";
+      $("floor-id").value = floor?.id || "";
+      $("floor-index").value = floor?.floor_index ?? 0;
+      $("building-id-display").textContent = building?.id || "-";
+      $("floor-id-display").textContent = floor?.id || "-";
+      $("floor-index-display").textContent = floor?.floor_index ?? 0;
+      updateFloorPlanSaveAs(false);
+      syncPushFromMain();
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+    }
+
+    function summarizeFloorRead(details) {
+      if (!details) return null;
+      return {
+        building: details.building,
+        floor: details.floor,
+        rooms: details.rooms,
+        doors: details.doors,
+        ocr_words_seen: details.ocr_words_seen,
+        room_crop_names_seen: details.room_crop_names_seen,
+        door_labels_seen: details.door_labels_seen,
+        warnings: details.warnings
+      };
+    }
+
+    async function readFloorPlan() {
+      return withBusy("Reading floor plan", async () => {
+        const target = targetBody();
+        const sourcePath = $("source-path").value.trim();
+        const data = await api("/api/read-floor-plan", {
+          source_type: floorPlanTypeFromPath(sourcePath),
+          source_path: sourcePath,
+          details_output: state.detectedDataPath,
+          building_name: target.building_name,
+          floor_name: target.floor_name,
+          floor_index: target.floor_index,
+          params: extractionParams()
+        });
+        state.detectedDataPath = data.details.path || state.detectedDataPath;
+        syncPushFromMain();
+        updateMetrics(data);
+        log("Floor plan read", summarizeFloorRead(data.details));
+        return data;
+      });
+    }
+
+    async function prepareFloorImport() {
+      return withBusy("Preparing floor data", async () => {
+        const data = await api("/api/prepare-floor-import", {
+          details_path: selectedDetectedDataPath(),
+          export_path: state.exportPath,
+          import_output: selectedFloorImportPath(),
+          target: targetBody(),
+          include_rooms: $("include-rooms").checked
+        });
+        state.floorImportPath = data.import.path || state.floorImportPath;
+        syncPushFromMain();
+        updateMetrics(data);
+        log("Floor data prepared", data.import);
+        return data;
+      });
+    }
+
+    async function pushFloorImport() {
+      return withBusy("Pushing to floor", async () => {
+        const target = targetBody();
+        const data = await api("/api/push-floor-import", {
+          ...serverBody(),
+          campus_id: target.campus_id,
+          import_path: selectedFloorImportPath(),
+          chunked: $("chunk-import").checked,
+          timeout: 180
+        });
+        log("Floor data pushed", data.steps);
+        return data;
+      });
+    }
+
+    async function verify() {
+      return withBusy("Verifying floor", async () => {
+        const target = targetBody();
+        const data = await api("/api/verify-floor", {
+          ...serverBody(),
+          campus_id: target.campus_id,
+          building_id: target.building_id,
+          floor_id: target.floor_id
+        });
+        syncPushFromMain();
+        updateMetrics(data);
+        log("Floor verified", data.floor || data.summary);
+        return data;
+      });
+    }
+
+    function updateFloorPlanPlaceholder() {
+      updateFloorPlanSaveAs(false);
+    }
+
+    async function makeFloorPlan() {
+      return withBusy("Creating floor plan", async () => {
+        const target = targetBody();
+        const data = await api("/api/make-floor-plan", {
+          ...serverBody(),
+          campus_id: target.campus_id,
+          building_id: target.building_id,
+          floor_id: target.floor_id,
+          format: $("floor-plan-format").value,
+          output_path: floorPlanSaveAsValue()
+        });
+        state.floorPlanPath = data.file.path;
+        $("floor-plan-label").textContent = data.file.path;
+        $("source-path").value = data.file.path;
+        await refreshFiles();
+        syncPushFromMain();
+        log("Floor plan created", data.file);
+        return data;
+      });
+    }
+
+    async function runPushSteps() {
+      await prepareFloorImport();
+      await pushFloorImport();
+      await verify();
+    }
+
+    for (const tab of document.querySelectorAll(".tab")) {
+      tab.addEventListener("click", () => showPage(tab.dataset.page));
+    }
+    $("go-read").addEventListener("click", () => showPage("read-floor-plan"));
+    $("go-push").addEventListener("click", () => showPage("push-floor"));
+    $("load-server").addEventListener("click", loadServer);
+    $("load-floors").addEventListener("click", loadFloors);
+    $("push-load-server").addEventListener("click", loadServerFromPush);
+    $("push-load-floors").addEventListener("click", loadFloorsFromPush);
+    $("push-server-url").addEventListener("input", syncMainServerFromPush);
+    $("push-auth-token").addEventListener("input", syncMainServerFromPush);
+    $("push-organization-select").addEventListener("change", syncMainServerFromPush);
+    $("push-campus-select").addEventListener("change", syncMainServerFromPush);
+    $("push-building-select").addEventListener("change", syncMainBuildingFromPush);
+    $("push-floor-select").addEventListener("change", syncMainFloorFromPush);
+    $("push-details-path").addEventListener("input", () => {
+      selectedDetectedDataPath();
+      renderPushSummary();
+    });
+    $("push-import-path").addEventListener("input", () => {
+      selectedFloorImportPath();
+      renderPushSummary();
+    });
+    $("choose-source-file-btn").addEventListener("click", () => $("source-file-picker").click());
+    $("source-file-picker").addEventListener("change", event => {
+      const file = event.target.files?.[0];
+      if (file) uploadFloorPlan(file);
+      event.target.value = "";
+    });
+    $("source-file-select").addEventListener("change", useSelectedServerFile);
+    $("refresh-files").addEventListener("click", refreshFilesFromButton);
+    $("read-floor-plan-btn").addEventListener("click", readFloorPlan);
+    $("prepare-floor-import-btn").addEventListener("click", prepareFloorImport);
+    $("push-floor-import-btn").addEventListener("click", pushFloorImport);
+    $("verify-btn").addEventListener("click", verify);
+    $("run-all-btn").addEventListener("click", runPushSteps);
+    $("make-floor-plan-btn").addEventListener("click", makeFloorPlan);
+    $("save-created-plan-btn").addEventListener("click", saveCreatedPlan);
+    $("floor-plan-output").addEventListener("input", markFloorPlanOutputEdited);
+    $("floor-plan-format").addEventListener("change", syncFloorPlanExtension);
+    $("building-select").addEventListener("change", renderFloors);
+    $("floor-select").addEventListener("change", syncTargetFields);
+    $("organization-select").addEventListener("change", loadServer);
+    updateFloorPlanPlaceholder();
+    syncPushFromMain();
+    refreshFiles().then(() => log("Local files loaded")).catch(err => log(`File scan failed: ${err.message}`));
+  </script>
+</body>
+</html>
